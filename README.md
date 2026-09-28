@@ -1,4 +1,3 @@
-# Bank-loan-analysis
 # Bank Loan Analysis
 
 ## 📌 Project Overview
