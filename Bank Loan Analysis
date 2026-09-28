@@ -1,0 +1,302 @@
+-- Use Database
+use [Bank Loan & Credit Risk Analysis using SQL, Excel & Power BI];
+-- create Table
+CREATE TABLE loan_data (
+    id INT PRIMARY KEY,
+    member_id INT,
+    loan_amount FLOAT,
+    funded_amount FLOAT,
+    funded_amount_investors FLOAT,
+    loan_term VARCHAR(20),
+    interest_rate FLOAT,
+    monthly_installment FLOAT,
+    grade VARCHAR(5),
+    sub_grade VARCHAR(5),
+    employment_length VARCHAR(20),
+    home_ownership VARCHAR(20),
+    annual_income FLOAT,
+    verification_status VARCHAR(20),
+    loan_issue_date DATE,
+    loan_status VARCHAR(50),
+    payment_plan VARCHAR(5),
+    purpose VARCHAR(50),
+    zip_code VARCHAR(20),
+    state VARCHAR(10),
+    debt_to_income_ratio FLOAT,
+    delinquencies INT,
+    first_credit_line_date DATE,
+    credit_inquiries_6m INT,
+    months_since_last_delinquency FLOAT,
+    months_since_last_record FLOAT,
+    open_accounts INT,
+    public_records INT,
+    revolving_balance FLOAT,
+    revolving_utilization FLOAT,
+    total_accounts INT,
+    initial_list_status VARCHAR(5),
+    outstanding_principal FLOAT,
+    outstanding_principal_investors FLOAT,
+    total_payment FLOAT,
+    total_payment_investors FLOAT,
+    principal_received FLOAT,
+    interest_received FLOAT,
+    late_fee_received FLOAT,
+    recoveries FLOAT,
+    collection_recovery_fee FLOAT,
+    last_payment_date DATE,
+    last_payment_amount FLOAT,
+    last_credit_pull_date DATE,
+    issue_year INT,
+    risk_category VARCHAR(20),
+    income_level VARCHAR(20),
+    loan_income_ratio FLOAT,
+    default_flag INT,
+    EMI_burden FLOAT,
+    interest_rate_clean FLOAT,
+    interest_category VARCHAR(20)
+);
+
+-- Data Import Issue Handling and Feature Engineering in SQL:-
+
+--Clearing Existing Data Before Fresh Import
+TRUNCATE TABLE loan_data;
+
+--Removing Inconsistent Column to Resolve Data Type Errors
+ALTER TABLE loan_data
+DROP COLUMN loan_income_ratio;
+
+--Importing Loan Dataset Using Bulk Insert
+BULK INSERT loan_data
+FROM 'C:\Users\SPARSH JAIN\OneDrive\Desktop\bank loan analysis SQL.csv'
+WITH (
+    FIRSTROW = 2,
+    FIELDTERMINATOR = ',',
+    ROWTERMINATOR = '\n',
+    TABLOCK
+);
+
+--Validating Successful Data Load
+SELECT COUNT(*) FROM loan_data;
+
+--Recreating Derived Column for Analysis
+ALTER TABLE loan_data
+ADD loan_income_ratio FLOAT;
+
+--Calculating Loan-to-Income Ratio Using SQL
+UPDATE loan_data
+SET loan_income_ratio = 
+CASE 
+    WHEN annual_income = 0 THEN 0
+    ELSE loan_amount / annual_income
+END;
+
+--Verifying Computed Values for Accuracy
+SELECT TOP 10 loan_amount, annual_income, loan_income_ratio
+FROM loan_data;
+
+-- BASIC QUERY (1 TO 7):
+
+--1.Total Records
+SELECT COUNT(*) AS Total_Record
+FROM loan_data;
+
+--2.Preview Data
+SELECT * FROM loan_data
+
+--3.Distinct loan status
+SELECT DISTINCT loan_status
+from loan_data;
+
+--4.Null Values Check 
+SELECT COUNT(*) - count(annual_income) AS Null_value
+FROM loan_data;
+
+--5.Average Loan Amount
+SELECT ROUND(AVG(loan_amount),2) AS avg_loan_amount
+FROM loan_data;
+
+--6.Min & Max Interst Rate
+SELECT MIN(interest_rate) AS min_interest_rate,
+MAX(interest_rate) AS max_interst_rate
+FROM loan_data ;
+
+--7.Top 5 Highest Loan Amount
+SELECT TOP 5
+id,loan_amount
+FROM loan_data
+ORDER BY loan_amount DESC;
+
+-- DATA CLEANING QUERIES(8 TO 11):
+
+--8.Remove Duplicate Records
+WITH CTE AS (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY id ORDER BY id) AS duplicate
+    FROM loan_data
+)
+DELETE FROM CTE
+WHERE duplicate > 1;
+
+--9.Handle NULL Values
+UPDATE loan_data
+SET annual_income = ISNULL(annual_income,0),
+    months_since_last_delinquency = ISNULL(months_since_last_delinquency,0),
+    months_since_last_record = ISNULL(months_since_last_record,0);
+
+--10.Fix Interest Rate Format
+UPDATE loan_data
+SET [Interest Rate Clean] = 
+CAST(REPLACE(interest_rate, '%', '') AS FLOAT);
+
+--11.Standardize Loan Status
+UPDATE loan_data
+SET loan_status =
+CASE 
+    WHEN loan_status IN ('Charged Off','Default') THEN 'Default'
+    WHEN loan_status IN ('Fully Paid') THEN 'Paid'
+    ELSE 'Ongoing'
+END ;
+
+--FEATURE ENGINEERING(12 TO 17):
+
+--12.Default Flag
+UPDATE loan_data
+SET default_flag =
+CASE
+    WHEN loan_status IN('charged off','default') THEN 1
+  ELSE 0
+  END ;
+
+--13.Loan Income Ratio
+UPDATE loan_data
+SET loan_income_ratio = 
+CASE 
+    WHEN annual_income =0 THEN 0
+    ELSE loan_amount/annual_income
+END;
+
+--14.EMI Burden
+UPDATE loan_data
+SET EMI_burden =
+CASE
+    WHEN annual_income = 0 THEN 0
+    ELSE monthly_installment / (annual_income/12) 
+END;
+
+--15.Income Level (Segmentation)
+UPDATE loan_data
+SET income_level = 
+CASE
+    WHEN annual_income < 30000 THEN 'Low'
+    WHEN annual_income < 80000 THEN 'Medium'
+    ELSE 'High'
+END ;
+
+--16.Interest Category
+UPDATE loan_data
+SET interest_category = 
+CASE
+    WHEN [Interest Rate Clean] < 10 THEN 'Low'
+    WHEN [Interest Rate Clean] < 20 THEN 'Medium'
+    ELSE 'High'
+END ;
+
+--17.Risk Category
+UPDATE loan_data
+SET risk_category =
+CASE
+    WHEN loan_income_ratio  >0.5 THEN 'High Risk'
+    WHEN loan_income_ratio >0.3 THEN 'Medium Risk'
+    ELSE 'Low Risk'
+END;
+
+-- BUSINESS ANALYSIS QUERIES (18 TO 28):
+
+--18.Overall Default Rate
+SELECT COUNT(*) AS total_loans,
+SUM(CAST(default_flag AS INT )) AS total_defaults,
+ROUND (AVG(CAST(default_flag AS FLOAT))*100,2) AS default_rate_percentage
+FROM loan_data;
+
+--19.Income Level vs Default
+SELECT income_level, 
+COUNT(*) AS total_customers,
+ROUND(AVG(CAST(default_flag AS FLOAT))*100,2) AS default_rate
+FROM loan_data
+GROUP BY income_level;
+
+--20.Risk Category Analysis
+SELECT risk_category, 
+COUNT(*) AS total,
+ROUND(AVG(CAST(default_flag AS FLOAT))*100,2) AS default_rate
+FROM loan_data
+GROUP BY risk_category;
+
+--21.EMI Burden Impact
+SELECT
+CASE 
+    WHEN (monthly_installment / (annual_income / 12.0)) < 0.2 THEN 'Low'
+    WHEN (monthly_installment / (annual_income / 12.0)) < 0.5 THEN 'Medium'
+    ELSE 'High'
+END AS EMI_group,
+ROUND(AVG(CAST(default_flag AS FLOAT)) * 100, 2) AS default_rate
+FROM loan_data
+GROUP BY 
+CASE 
+    WHEN (monthly_installment / (annual_income / 12.0)) < 0.2 THEN 'Low'
+    WHEN (monthly_installment / (annual_income / 12.0)) < 0.5 THEN 'Medium'
+    ELSE 'High'
+END; 
+
+--22.Interest Category vs Default
+SELECT 
+interest_category,
+ROUND(AVG(CAST(default_flag AS FLOAT))*100,2) AS default_rate
+FROM loan_data
+GROUP BY interest_category;
+
+--23.Loan Income Ratio Impact
+SELECT 
+CASE 
+    WHEN loan_income_ratio < 0.2 THEN 'Low'
+    WHEN loan_income_ratio < 0.5 THEN 'Medium'
+    ELSE 'High'
+END AS ratio_group,
+ROUND(AVG(CAST(default_flag AS FLOAT))*100,2) AS default_rate
+FROM loan_data
+GROUP BY 
+CASE 
+    WHEN loan_income_ratio < 0.2 THEN 'Low'
+    WHEN loan_income_ratio < 0.5 THEN 'Medium'
+    ELSE 'High'
+END;
+
+--24.Grade-wise Default
+SELECT grade,
+ROUND(AVG(CAST(default_flag AS FLOAT))*100,2) AS default_rate
+FROM loan_data
+GROUP BY grade;
+
+--25.State-wise Default Analysis
+SELECT state,
+ROUND(AVG(CAST(default_flag AS FLOAT))*100,2) AS default_rate
+FROM loan_data
+GROUP BY state;
+
+--26.Year-wise Trend
+SELECT issue_year,
+ROUND(AVG(CAST(default_flag AS FLOAT))*100,2) AS default_rate
+FROM loan_data
+GROUP BY issue_year;
+
+--27.Home Ownership vs Default
+SELECT home_ownership,
+ROUND(AVG(CAST(default_flag AS FLOAT))*100,2) AS default_rate
+FROM loan_data
+GROUP BY home_ownership;
+
+--28.Verification Status Impact
+SELECT verification_status,
+ROUND(AVG(CAST(default_flag AS FLOAT))*100,2) AS default_rate
+FROM loan_data
+GROUP BY verification_status;
